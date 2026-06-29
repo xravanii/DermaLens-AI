@@ -141,18 +141,7 @@ Clinical AI Report
 PDF Generation + History
 ```
 
----
 
-## 📸 Screenshots
-
-> Add screenshots here
-
-- Welcome Screen
-- Upload Screen
-- Questionnaire
-- AI Analysis
-- Clinical Report
-- History Page
 
 ---
 
