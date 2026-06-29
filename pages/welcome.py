@@ -38,7 +38,7 @@ def render_welcome_screen():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             try:
-                st.image("assets/welcome_illustration.png", width="stretch")
+                st.image("assets/welcome_illustration.png", use_container_width=True)
             except Exception:
                 st.markdown(
                     "<div style='height:200px;background:linear-gradient(135deg,rgba(77,159,255,0.1),rgba(6,182,212,0.08));border-radius:20px;display:flex;align-items:center;justify-content:center;color:#4D9FFF;font-weight:700;font-family:Inter,sans-serif;border:1px solid rgba(77,159,255,0.2);font-size:0.95rem;'>Dermatology Scanner Illustration</div>",

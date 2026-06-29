@@ -40,6 +40,7 @@ def render_upload_screen():
         # Handle uploaded file
         if uploaded_file is not None:
             st.session_state.uploaded_image = uploaded_file.read()
+            st.session_state.pop("analysis_result", None)
             st.session_state.uploaded_image_name = uploaded_file.name
             size_bytes = len(st.session_state.uploaded_image)
             if size_bytes > 1024 * 1024:
@@ -84,6 +85,7 @@ def render_upload_screen():
                 with col_act_1:
                     if st.button("Replace Image", type="secondary", key="replace_img_btn"):
                         st.session_state.uploaded_image = None
+                        st.session_state.pop("analysis_result", None)
                         st.session_state.uploaded_image_name = None
                         st.session_state.uploaded_image_size = None
                         st.session_state.uploader_key += 1
@@ -91,6 +93,7 @@ def render_upload_screen():
                 with col_act_2:
                     if st.button("Remove Image", type="secondary", key="remove_img_btn"):
                         st.session_state.uploaded_image = None
+                        st.session_state.pop("analysis_result", None)
                         st.session_state.uploaded_image_name = None
                         st.session_state.uploaded_image_size = None
                         st.session_state.uploader_key += 1

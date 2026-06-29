@@ -1,6 +1,6 @@
 import streamlit as st
 from utils.state import navigate_to, add_to_history
-from utils.ml_mock import MOCK_RESPONSE
+from utils.ml_service import analyze_skin
 from components.ui import (
     ICON_CHECK, ICON_MAP, ICON_TARGET, ICON_TIP, ICON_BOT, ICON_FLASK, ICON_LOCK,
     ICON_SCAN,
@@ -10,6 +10,8 @@ from components.ui import (
 import datetime
 import io
 
+from pages.summary import estimate_skin_type
+
 # ReportLab imports
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, HRFlowable, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -17,6 +19,8 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
+
+
 
 # SVG icons for section headers in report
 ICON_AI = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>'
@@ -28,7 +32,7 @@ ICON_DOWNLOAD2 = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" st
 ICON_PLUS2 = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>'
 
 # ─── PDF Generator ────────────────────────────────────────────
-def generate_pdf(date_str: str, time_str: str) -> io.BytesIO:
+def generate_pdf(report_data, date_str, time_str) -> io.BytesIO:
     """Builds a complete DermaLens AI skin report PDF using ReportLab.
     Returns a BytesIO buffer ready for st.download_button."""
     buffer = io.BytesIO()
@@ -119,14 +123,14 @@ def generate_pdf(date_str: str, time_str: str) -> io.BytesIO:
     story.append(section("Skin Health Overview"))
     metrics = [
         ["Metric", "Result"],
-        ["Skin Health Score",  f"{MOCK_RESPONSE['skin_health']}/100"],
-        ["Skin Type",          MOCK_RESPONSE["skin_type"]],
-        ["Primary Skin Concern", MOCK_RESPONSE["concern"]],
-        ["Confidence",         f"{MOCK_RESPONSE['confidence']:.0f}%"],
-        ["Hydration",         f"{MOCK_RESPONSE['hydration']}%"],
-        ["Oil Balance",       f"{MOCK_RESPONSE['oil_balance']}%"],
-        ["Barrier Health",    f"{MOCK_RESPONSE['barrier_health']}%"],
-        ["Sensitivity",       MOCK_RESPONSE["sensitivity"]],
+        ["Skin Health Score",  f"{report_data['skin_health']}/100"],
+        ["Skin Type",          report_data["skin_type"]],
+        ["Primary Skin Concern", report_data["concern"]],
+        ["Confidence",         f"{report_data['confidence']:.0f}%"],
+        ["Hydration",         f"{report_data['hydration']}%"],
+        ["Oil Balance",       f"{report_data['oil_balance']}%"],
+        ["Barrier Health",    f"{report_data['barrier_health']}%"],
+        ["Sensitivity",       report_data["sensitivity"]],
     ]
     tbl = Table(metrics, colWidths=[6*cm, 10*cm])
     tbl.setStyle(TableStyle([
@@ -155,28 +159,29 @@ def generate_pdf(date_str: str, time_str: str) -> io.BytesIO:
     # ── Clinical AI Summary ─────────────────────────────────────
     story.append(section("Clinical AI Summary"))
     story.append(body(
-        "The uploaded image suggests mild <b>Whiteheads</b> around the T-zone with increased "
-        "oil production. No signs of severe inflammation were detected. A gentle exfoliating "
-        "routine with oil-control ingredients is strongly recommended. Consistent use of "
-        "Niacinamide and Salicylic Acid should show visible improvement within 4\u20136 weeks."
-    ))
+    f"""
+    The uploaded image indicates <b>{report_data['concern']}</b>.
+    The AI prediction confidence is <b>{report_data['confidence']:.1f}%</b>.
+    This report provides personalized skincare recommendations based on the detected skin concern.
+    """
+))
     story.append(hr())
 
     # ── Morning Routine ─────────────────────────────────────────
     story.append(section("Morning Routine"))
-    for i, step in enumerate(MOCK_RESPONSE["morning_routine"], 1):
-        story.append(body(f"<b>{i}. {step['step']}</b> \u2014 {step['desc']}"))
+    for i, step in enumerate(report_data["morning_routine"], 1):
+        story.append(body(f"<b>{i}. {step['step']}</b> \u2014 {step['description']}"))
     story.append(hr())
 
     # ── Night Routine ───────────────────────────────────────────
     story.append(section("Night Routine"))
-    for i, step in enumerate(MOCK_RESPONSE["night_routine"], 1):
-        story.append(body(f"<b>{i}. {step['step']}</b> \u2014 {step['desc']}"))
+    for i, step in enumerate(report_data["night_routine"], 1):
+        story.append(body(f"<b>{i}. {step['step']}</b> \u2014 {step['description']}"))
     story.append(hr())
 
     # ── Recommended Ingredients ─────────────────────────────────
     story.append(section("Recommended Ingredients"))
-    for ing in MOCK_RESPONSE["recommendations"]:
+    for ing in report_data["recommendations"]:
         story.append(body(
             f"<b>{ing['name']}</b> ({ing['usage']} \u00b7 {ing['frequency']})"
         ))
@@ -185,7 +190,7 @@ def generate_pdf(date_str: str, time_str: str) -> io.BytesIO:
 
     # ── Ingredients to Avoid ────────────────────────────────────
     story.append(section("Ingredients to Avoid"))
-    for ing in MOCK_RESPONSE["avoid"]:
+    for ing in report_data["avoid"]:
         story.append(body(f"<b>{ing['name']}</b> ({ing['type']})"))
         story.append(bullet(ing["benefits"]))
     story.append(hr())
@@ -207,6 +212,376 @@ def generate_pdf(date_str: str, time_str: str) -> io.BytesIO:
 def render_report_screen():
     """Renders the comprehensive, interactive AI Skin Report (Screen 7)."""
 
+    # Run AI only once per uploaded image
+    if "analysis_result" not in st.session_state or st.session_state.analysis_result is None:
+
+        if st.session_state.uploaded_image is None:
+            st.error("No image uploaded.")
+            return
+
+        with st.spinner("Running AI analysis..."):
+            st.session_state.analysis_result = analyze_skin(
+                st.session_state.uploaded_image
+            )
+#  -----
+    result = st.session_state.analysis_result
+
+    condition = result.get("condition", "Unknown")
+    confidence = result.get("confidence", 0)
+    predictions = result.get("all_predictions", [])
+
+    answers = st.session_state.get("answers", [])
+    skin_type = estimate_skin_type(answers) if answers else "Unknown"
+
+    # Temporary values until we implement medical scoring
+    health_score = min(100, max(65, int(100 - confidence/2)))
+
+    if condition == "Healthy":
+        hydration = 90
+        oil_balance = 88
+        barrier_health = 92
+        sensitivity = "Low"
+
+    elif condition == "Acne":
+        hydration = 70
+        oil_balance = 45
+        barrier_health = 68
+        sensitivity = "High"
+
+    elif condition == "Pigmentation":
+        hydration = 82
+        oil_balance = 80
+        barrier_health = 85
+        sensitivity = "Medium"
+
+    elif condition == "Wrinkles":
+        hydration = 62
+        oil_balance = 78
+        barrier_health = 72
+        sensitivity = "Medium"
+
+    else:
+        hydration = 75
+        oil_balance = 75
+        barrier_health = 75
+        sensitivity = "Unknown"
+
+    if condition == "Acne":
+
+        morning_routine = [
+            {
+                "step": "Salicylic Acid Cleanser",
+                "description": "Remove excess oil and unclog pores."
+            },
+            {
+                "step": "Niacinamide Serum",
+                "description": "Reduce inflammation and regulate sebum."
+            },
+            {
+                "step": "Oil-Free SPF 50",
+                "description": "Protect acne-prone skin from UV damage."
+            }
+        ]
+
+        night_routine = [
+            {
+                "step": "Gentle Cleanser",
+                "description": "Wash away dirt and excess oil."
+            },
+            {
+                "step": "Benzoyl Peroxide / Adapalene",
+                "description": "Treat active acne lesions."
+            },
+            {
+                "step": "Lightweight Moisturizer",
+                "description": "Maintain hydration without clogging pores."
+            }
+        ]
+
+        recommendations = [
+            {
+                "name": "Salicylic Acid",
+                "usage": "AM/PM",
+                "benefits": "Unclogs pores and reduces acne.",
+                "frequency": "Daily"
+            },
+            {
+                "name": "Niacinamide",
+                "usage": "AM",
+                "benefits": "Controls excess oil and calms redness.",
+                "frequency": "Daily"
+            },
+            {
+                "name": "Ceramides",
+                "usage": "PM",
+                "benefits": "Repairs the skin barrier.",
+                "frequency": "Daily"
+            }
+        ]
+
+        avoid = [
+            {
+                "name": "Heavy Oils",
+                "type": "Avoid",
+                "benefits": "Can clog pores and worsen acne."
+            },
+            {
+                "name": "Over-scrubbing",
+                "type": "Avoid",
+                "benefits": "Irritates inflamed skin."
+            },
+            {
+                "name": "Picking Pimples",
+                "type": "Avoid",
+                "benefits": "May cause scarring and infection."
+            }
+        ]
+
+    elif condition == "Pigmentation":
+
+        morning_routine = [
+            {
+                "step": "Gentle Cleanser",
+                "description": "Clean skin without irritation."
+            },
+            {
+                "step": "Vitamin C Serum",
+                "description": "Brighten skin and reduce pigmentation."
+            },
+            {
+                "step": "Broad Spectrum SPF 50",
+                "description": "Prevent pigmentation from worsening."
+            }
+        ]
+
+        night_routine = [
+            {
+                "step": "Gentle Cleanser",
+                "description": "Remove impurities."
+            },
+            {
+                "step": "Azelaic Acid / Alpha Arbutin",
+                "description": "Fade dark spots gradually."
+            },
+            {
+                "step": "Moisturizer",
+                "description": "Support skin repair overnight."
+            }
+        ]
+
+        recommendations = [
+            {
+                "name": "Vitamin C",
+                "usage": "AM",
+                "benefits": "Brightens skin and reduces pigmentation.",
+                "frequency": "Daily"
+            },
+            {
+                "name": "Alpha Arbutin",
+                "usage": "PM",
+                "benefits": "Fades dark spots.",
+                "frequency": "Daily"
+            },
+            {
+                "name": "Azelaic Acid",
+                "usage": "PM",
+                "benefits": "Improves uneven skin tone.",
+                "frequency": "3–4x/week"
+            }
+        ]
+
+        avoid = [
+            {
+                "name": "Skipping Sunscreen",
+                "type": "Avoid",
+                "benefits": "UV exposure worsens pigmentation."
+            },
+            {
+                "name": "Harsh Exfoliation",
+                "type": "Avoid",
+                "benefits": "May increase skin irritation."
+            }
+        ]
+
+    elif condition == "Wrinkles":
+
+        morning_routine = [
+            {
+                "step": "Hydrating Cleanser",
+                "description": "Clean without drying the skin."
+            },
+            {
+                "step": "Vitamin C Serum",
+                "description": "Fight free radicals."
+            },
+            {
+                "step": "SPF 50",
+                "description": "Reduce photoaging."
+            }
+        ]
+
+        night_routine = [
+            {
+                "step": "Gentle Cleanser",
+                "description": "Clean skin before treatment."
+            },
+            {
+                "step": "Retinol Serum",
+                "description": "Stimulate collagen production."
+            },
+            {
+                "step": "Ceramide Moisturizer",
+                "description": "Repair the skin barrier overnight."
+            }
+        ]
+
+        recommendations = [
+            {
+                "name": "Retinol",
+                "usage": "PM",
+                "benefits": "Boosts collagen production.",
+                "frequency": "3x/week"
+            },
+            {
+                "name": "Peptides",
+                "usage": "AM/PM",
+                "benefits": "Improves skin elasticity.",
+                "frequency": "Daily"
+            },
+            {
+                "name": "Ceramides",
+                "usage": "PM",
+                "benefits": "Repairs the skin barrier.",
+                "frequency": "Daily"
+            }
+        ]
+
+        avoid = [
+            {
+                "name": "Smoking",
+                "type": "Avoid",
+                "benefits": "Accelerates collagen breakdown."
+            },
+            {
+                "name": "Excess Sun Exposure",
+                "type": "Avoid",
+                "benefits": "Causes premature skin aging."
+            }
+        ]
+
+    else:
+
+        morning_routine = [
+            {
+                "step": "Gentle Cleanser",
+                "description": "Maintain healthy skin."
+            },
+            {
+                "step": "Light Moisturizer",
+                "description": "Keep skin hydrated."
+            },
+            {
+                "step": "SPF 50",
+                "description": "Daily UV protection."
+            }
+        ]
+
+        night_routine = [
+            {
+                "step": "Gentle Cleanser",
+                "description": "Clean before bed."
+            },
+            {
+                "step": "Hydrating Serum",
+                "description": "Maintain moisture balance."
+            },
+            {
+                "step": "Moisturizer",
+                "description": "Support overnight repair."
+            }
+        ]
+
+        recommendations = [
+            {
+                "name": "Hyaluronic Acid",
+                "usage": "AM/PM",
+                "benefits": "Provides long-lasting hydration.",
+                "frequency": "Daily"
+            },
+            {
+                "name": "Ceramides",
+                "usage": "PM",
+                "benefits": "Maintains a healthy skin barrier.",
+                "frequency": "Daily"
+            },
+            {
+                "name": "Vitamin C",
+                "usage": "AM",
+                "benefits": "Protects against environmental damage.",
+                "frequency": "Daily"
+            }
+        ]
+
+        avoid = [
+            {
+                "name": "Skipping Sunscreen",
+                "type": "Avoid",
+                "benefits": "Increases long-term skin damage."
+            },
+            {
+                "name": "Over-cleansing",
+                "type": "Avoid",
+                "benefits": "Can weaken the skin barrier."
+            }
+        ]
+    report_data = {
+        "skin_health": health_score,
+        "skin_type": skin_type,
+        "concern": condition,
+        "confidence": confidence,
+        "hydration": hydration,
+        "oil_balance": oil_balance,
+        "barrier_health": barrier_health,
+        "sensitivity": sensitivity,
+        "morning_routine": morning_routine,
+
+        "night_routine": night_routine,
+
+        "recommendations": recommendations,
+
+        "avoid": avoid
+    }
+    if condition == "Acne":
+        clinical_summary = f"""
+        The uploaded image indicates signs of <strong>Acne</strong> with an AI confidence of <strong>{confidence:.1f}%</strong>.
+        The analysis suggests acne-prone skin that may benefit from gentle cleansing, oil control, and non-comedogenic skincare.
+        Consistent use of ingredients like Niacinamide and Salicylic Acid may help improve skin condition over time.
+        """
+
+    elif condition == "Pigmentation":
+        clinical_summary = f"""
+        The uploaded image indicates <strong>Pigmentation</strong> with an AI confidence of <strong>{confidence:.1f}%</strong>.
+        Uneven skin tone and localized dark spots appear to be the primary concern.
+        Daily sunscreen and brightening ingredients such as Vitamin C and Niacinamide are recommended.
+        """
+
+    elif condition == "Wrinkles":
+        clinical_summary = f"""
+        The uploaded image indicates visible <strong>Wrinkles</strong> with an AI confidence of <strong>{confidence:.1f}%</strong>.
+        The analysis suggests early or moderate signs of skin aging.
+        Maintaining hydration, daily SPF protection, and retinol-based nighttime care may improve skin texture.
+        """
+
+    else:
+        clinical_summary = f"""
+        The uploaded image indicates <strong>Healthy Skin</strong> with an AI confidence of <strong>{confidence:.1f}%</strong>.
+        No major visible skin concerns were detected.
+        Continue maintaining a balanced skincare routine and consistent sun protection.
+        """
+    print("Analysis Result:")
+    print(report_data)
+    print(type(report_data))
+#   ----
     # 1. Log to history ONCE per scan
     if "history_logged" not in st.session_state:
         st.session_state.history_logged = False
@@ -218,9 +593,9 @@ def render_report_screen():
     if not st.session_state.history_logged:
         add_to_history(
             date_str,
-            MOCK_RESPONSE["skin_health"],
-            MOCK_RESPONSE["concern"],
-            MOCK_RESPONSE["skin_type"]
+            93,          # Temporary health score
+            condition,
+            skin_type
         )
         st.session_state.history_logged = True
 
@@ -261,6 +636,8 @@ def render_report_screen():
     # ═══ LEFT COLUMN ════════════════════════════════════════════
     with col_left:
         with st.container():
+
+
             st.markdown("""
             <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;
                         color:#4D9FFF;margin-bottom:1rem;font-family:'Inter',sans-serif;">
@@ -269,38 +646,20 @@ def render_report_screen():
             """, unsafe_allow_html=True)
 
             st.markdown("<p style='text-align:center;font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#8A9BB5;margin-bottom:0;font-family:\"Inter\",sans-serif;'>Overall Skin Health Score</p>", unsafe_allow_html=True)
-            st.markdown(render_large_health_score(MOCK_RESPONSE["skin_health"]), unsafe_allow_html=True)
+            st.markdown(render_large_health_score(report_data["skin_health"]), unsafe_allow_html=True)
 
             # Stat pills
             st.markdown(f"""
             <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:0.4rem;margin-bottom:1.5rem;">
-                <span class="stat-pill">{MOCK_RESPONSE['skin_type']} Skin</span>
-                <span class="stat-pill">{MOCK_RESPONSE['concern']}</span>
-                <span class="stat-pill">{MOCK_RESPONSE['confidence']:.0f}% Confidence</span>
+                <span class="stat-pill">{report_data['skin_type']} Skin</span>
+                <span class="stat-pill">{report_data['concern']}</span>
+                <span class="stat-pill">{report_data['confidence']:.0f}% Confidence</span>
             </div>
             """, unsafe_allow_html=True)
 
             st.markdown("<hr class='dl-divider'>", unsafe_allow_html=True)
 
             # Face Visualization
-            st.markdown(f"""
-            <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.88rem;font-weight:700;color:#0A1628;
-                        margin-bottom:0.5rem;font-family:'Inter',sans-serif;">
-                {ICON_MAP} Facial Region Highlight
-            </div>
-            <p style="color:#8A9BB5;font-size:0.78rem;margin-bottom:0.85rem;font-family:'Inter',sans-serif;line-height:1.4;">
-                T-zone area exhibits heightened sebum activation and whitehead concentration.
-            </p>
-            """, unsafe_allow_html=True)
-            try:
-                st.image("assets/face_visualization.png", width="stretch")
-            except Exception:
-                st.markdown(
-                    "<div style='height:220px;background:linear-gradient(135deg,rgba(77,159,255,0.08),rgba(6,182,212,0.05));border-radius:16px;display:flex;align-items:center;justify-content:center;color:#4D9FFF;font-weight:700;border:1px solid rgba(77,159,255,0.18);font-family:\"Inter\",sans-serif;font-size:0.9rem;'>Facial Analysis Map</div>",
-                    unsafe_allow_html=True
-                )
-
-            st.markdown("<hr class='dl-divider'>", unsafe_allow_html=True)
 
             # Skin Goals
             st.markdown(f"""
@@ -343,10 +702,47 @@ def render_report_screen():
             """, unsafe_allow_html=True)
 
             render_privacy_notice()
+            #avoid
+            st.markdown("""
+            <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;font-weight:700;color:#EF4444;
+                        text-transform:uppercase;letter-spacing:0.06em;font-family:'Inter',sans-serif;margin:1.25rem 0 0.65rem;">
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#EF4444" stroke-width="2.5"
+                     stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                </svg>
+                Ingredients to Avoid
+            </div>
+            """, unsafe_allow_html=True)
+            for ing in report_data["avoid"]:
+                st.markdown(f"""
+                <div class="ingredient-card ingredient-card-avoid">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
+                        <span style="font-weight:800;color:#EF4444;font-size:0.95rem;font-family:'Inter',sans-serif;">{ing['name']}</span>
+                        <span style="font-size:0.72rem;font-weight:700;background:rgba(245,158,11,0.1);
+                                     color:#D97706;padding:0.2rem 0.65rem;border-radius:50px;
+                                     font-family:'Inter',sans-serif;border:1px solid rgba(245,158,11,0.2);">
+                            {ing['type']}
+                        </span>
+                    </div>
+                    <div style="font-size:0.82rem;color:#4A5568;font-family:'Inter',sans-serif;">
+                        {ing['benefits']}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            st.markdown("<hr class='dl-divider'>", unsafe_allow_html=True)
+
 
     # ═══ RIGHT COLUMN ════════════════════════════════════════════
     with col_right:
         with st.container():
+            # result = st.session_state.get("analysis_result", {})
+            # condition = result.get("condition", "Unknown")
+            # confidence = result.get("confidence", 0)
+            # predictions = result.get("all_predictions", [])
+            # answers = st.session_state.get("answers", [])
+            # skin_type = estimate_skin_type(answers) if answers else "Unknown"
+
             st.markdown("""
             <div style="font-size:0.7rem;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;
                         color:#4D9FFF;margin-bottom:1rem;font-family:'Inter',sans-serif;">
@@ -357,11 +753,13 @@ def render_report_screen():
             # Summary 4 mini cards
             sum_1, sum_2, sum_3, sum_4 = st.columns(4)
             cards = [
-                (sum_1, "Score",      f"{MOCK_RESPONSE['skin_health']}/100", "#4D9FFF"),
-                (sum_2, "Concern",    MOCK_RESPONSE["concern"],              "#EF4444"),
-                (sum_3, "Confidence", f"{MOCK_RESPONSE['confidence']:.0f}%", "#22C55E"),
-                (sum_4, "Type",       MOCK_RESPONSE["skin_type"],            "#0A1628"),
+                (sum_1, "Score", "93/100", "#4D9FFF"),
+                (sum_2, "Concern", condition, "#EF4444"),
+                (sum_3, "Confidence", f"{confidence:.1f}%", "#22C55E"),
+                (sum_4, "Type", skin_type, "#0A1628"),
             ]
+
+
             for col, label, value, color in cards:
                 with col:
                     st.markdown(f"""
@@ -378,16 +776,16 @@ def render_report_screen():
             # Circular gauges
             met_col1, met_col2, met_col3, met_col4 = st.columns(4)
             with met_col1:
-                st.markdown(render_circular_metric("Hydration",   f"{MOCK_RESPONSE['hydration']}%",      MOCK_RESPONSE['hydration'],     color="#4D9FFF"), unsafe_allow_html=True)
+                st.markdown(render_circular_metric("Hydration",   f"{report_data['hydration']}%",      report_data['hydration'],     color="#4D9FFF"), unsafe_allow_html=True)
             with met_col2:
-                st.markdown(render_circular_metric("Oil Balance", f"{MOCK_RESPONSE['oil_balance']}%",    MOCK_RESPONSE['oil_balance'],   color="#06B6D4"), unsafe_allow_html=True)
+                st.markdown(render_circular_metric("Oil Balance", f"{report_data['oil_balance']}%",    report_data['oil_balance'],   color="#06B6D4"), unsafe_allow_html=True)
             with met_col3:
-                st.markdown(render_circular_metric("Barrier",     f"{MOCK_RESPONSE['barrier_health']}%", MOCK_RESPONSE['barrier_health'],color="#22C55E"), unsafe_allow_html=True)
+                st.markdown(render_circular_metric("Barrier",     f"{report_data['barrier_health']}%", report_data['barrier_health'],color="#22C55E"), unsafe_allow_html=True)
             with met_col4:
                 st.markdown(f"""
                 <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0.5rem;position:relative;">
                     <div class="sensitivity-badge">
-                        <span style="font-size:0.82rem;font-weight:800;color:#B45309;font-family:'Inter',sans-serif;">{MOCK_RESPONSE['sensitivity']}</span>
+                        <span style="font-size:0.82rem;font-weight:800;color:#B45309;font-family:'Inter',sans-serif;">{report_data['sensitivity']}</span>
                     </div>
                     <span style="font-size:0.7rem;text-transform:uppercase;font-weight:700;color:#8A9BB5;
                                  margin-top:0.5rem;letter-spacing:0.08em;font-family:'Inter',sans-serif;">Sensitivity</span>
@@ -407,13 +805,11 @@ def render_report_screen():
                         Clinical AI Summary
                     </span>
                 </div>
-                <p style="color:#4A5568;font-size:0.87rem;line-height:1.65;margin:0;font-family:'Inter',sans-serif;">
-                    The uploaded image suggests mild <strong>Whiteheads</strong> around the T-zone with increased oil production.
-                    No signs of severe inflammation were detected. A gentle exfoliating routine with oil-control ingredients
-                    is strongly recommended. Consistent use of Niacinamide and Salicylic Acid should show visible improvement
-                    within 4–6 weeks.
-                </p>
-            </div>
+                    <p style="color:#4A5568;font-size:0.87rem;line-height:1.65;margin:0;font-family:'Inter',sans-serif;">
+                        {clinical_summary}
+
+
+
             """, unsafe_allow_html=True)
 
             # Skincare Regimen tabs
@@ -428,26 +824,26 @@ def render_report_screen():
 
             with tab_morning:
                 st.write("")
-                for idx, r_step in enumerate(MOCK_RESPONSE["morning_routine"]):
+                for idx, r_step in enumerate(report_data["morning_routine"]):
                     st.markdown(f"""
                     <div class="timeline-item">
                         <div class="timeline-num">{idx + 1}</div>
                         <div>
                             <div class="timeline-text">{r_step['step']}</div>
-                            <div style="font-size:0.78rem;color:#8A9BB5;font-family:'Inter',sans-serif;margin-top:0.15rem;">{r_step['desc']}</div>
+                            <div style="font-size:0.78rem;color:#8A9BB5;font-family:'Inter',sans-serif;margin-top:0.15rem;">{r_step['description']}</div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
             with tab_night:
                 st.write("")
-                for idx, r_step in enumerate(MOCK_RESPONSE["night_routine"]):
+                for idx, r_step in enumerate(report_data["night_routine"]):
                     st.markdown(f"""
                     <div class="timeline-item" style="border-left-color:#06B6D4;">
                         <div class="timeline-num" style="background:linear-gradient(135deg,#06B6D4,#0891B2);">{idx + 1}</div>
                         <div>
                             <div class="timeline-text">{r_step['step']}</div>
-                            <div style="font-size:0.78rem;color:#8A9BB5;font-family:'Inter',sans-serif;margin-top:0.15rem;">{r_step['desc']}</div>
+                            <div style="font-size:0.78rem;color:#8A9BB5;font-family:'Inter',sans-serif;margin-top:0.15rem;">{r_step['description']}</div>
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
@@ -465,7 +861,7 @@ def render_report_screen():
                 {ICON_CHECK} Recommended Actives
             </div>
             """, unsafe_allow_html=True)
-            for ing in MOCK_RESPONSE["recommendations"]:
+            for ing in report_data["recommendations"]:
                 st.markdown(f"""
                 <div class="ingredient-card">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
@@ -486,34 +882,6 @@ def render_report_screen():
                 """, unsafe_allow_html=True)
 
             # Ingredients to avoid
-            st.markdown("""
-            <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;font-weight:700;color:#EF4444;
-                        text-transform:uppercase;letter-spacing:0.06em;font-family:'Inter',sans-serif;margin:1.25rem 0 0.65rem;">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#EF4444" stroke-width="2.5"
-                     stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                </svg>
-                Ingredients to Avoid
-            </div>
-            """, unsafe_allow_html=True)
-            for ing in MOCK_RESPONSE["avoid"]:
-                st.markdown(f"""
-                <div class="ingredient-card ingredient-card-avoid">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                        <span style="font-weight:800;color:#EF4444;font-size:0.95rem;font-family:'Inter',sans-serif;">{ing['name']}</span>
-                        <span style="font-size:0.72rem;font-weight:700;background:rgba(245,158,11,0.1);
-                                     color:#D97706;padding:0.2rem 0.65rem;border-radius:50px;
-                                     font-family:'Inter',sans-serif;border:1px solid rgba(245,158,11,0.2);">
-                            {ing['type']}
-                        </span>
-                    </div>
-                    <div style="font-size:0.82rem;color:#4A5568;font-family:'Inter',sans-serif;">
-                        {ing['benefits']}
-                    </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-            st.markdown("<hr class='dl-divider'>", unsafe_allow_html=True)
 
             # OTC Products
             st.markdown(f"""
@@ -582,7 +950,11 @@ def render_report_screen():
             # Action buttons
             col_act_left, col_act_right = st.columns(2)
             with col_act_left:
-                pdf_buffer = generate_pdf(date_str, time_str)
+                pdf_buffer = generate_pdf(
+    report_data,
+    date_str,
+    time_str
+)
                 st.download_button(
                     label="Download PDF Report",
                     data=pdf_buffer.getvalue(),

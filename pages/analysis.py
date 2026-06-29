@@ -2,6 +2,9 @@ import streamlit as st
 import time
 from utils.state import navigate_to
 
+from io import BytesIO
+from ml.predict import predict_image
+
 # SVG icon for analysis loading icon
 ICON_ANALYSIS = '<svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m17 6-2.5-2.5"/><path d="m14 8-1-1"/><path d="m7 18 2.5 2.5"/></svg>'
 
@@ -33,6 +36,14 @@ def render_analysis_screen():
 
         progress_bar = st.progress(0.0)
         status_text = st.empty()
+# Run AI only once
+        if "analysis_result" not in st.session_state:
+
+            uploaded_image = BytesIO(st.session_state.uploaded_image)
+
+            st.session_state.analysis_result = predict_image(uploaded_image)
+            
+
 
         # Analysis steps
         steps = [
